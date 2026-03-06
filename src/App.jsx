@@ -1,7 +1,9 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { supabase } from "./supabase";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from "recharts";
 
+// ── 색상 & 상수 ───────────────────────────────────────────────
 const LIME   = "#B8FF00";
 const DARK   = "#0A0A0A";
 const CARD   = "#141414";
@@ -12,7 +14,6 @@ const BLUE   = "#4FC3F7";
 const ORANGE = "#FF7043";
 const DAYS   = ["월","화","수","목","금","토","일"];
 
-// exerciseDB: [{name, tip}]
 const DEFAULT_EXERCISES = [
   { name:"벤치프레스",      tip:"등을 살짝 아치형으로 유지하고 견갑골을 모아주세요. 바를 가슴 하단에 내리는 게 포인트!" },
   { name:"스쿼트",          tip:"무릎이 발끝 방향으로 향하도록 하고, 엉덩이를 뒤로 빼며 앉으세요. 코어에 힘을 꽉!" },
@@ -36,7 +37,6 @@ const DEFAULT_EXERCISES = [
   { name:"기타",            tip:"" },
 ];
 
-// foodDB: [{name, kcal, carb, protein, fat, tip}]
 const DEFAULT_FOODS = [
   { name:"닭가슴살 100g", kcal:165, carb:0,  protein:31, fat:4,  tip:"고단백 저지방의 왕! 브로콜리나 고구마와 함께 먹으면 영양 균형이 완벽해요." },
   { name:"흰쌀밥 1공기",  kcal:300, carb:66, protein:5,  fat:1,  tip:"운동 전·후 에너지 보충에 최고. 단백질 식품(닭가슴살, 달걀)과 함께 드세요." },
@@ -48,33 +48,9 @@ const DEFAULT_FOODS = [
   { name:"그릭요거트",    kcal:100, carb:6,  protein:17, fat:1,  tip:"장 건강 + 단백질 두 마리 토끼! 꿀이나 베리류를 올려 먹으면 더욱 맛있어요." },
 ];
 
-const seedWorkouts = [
-  { id:1, date:"2026-02-20", exercise:"벤치프레스", weight:80,   sets:4, reps:8  },
-  { id:2, date:"2026-02-20", exercise:"스쿼트",     weight:100,  sets:5, reps:5  },
-  { id:3, date:"2026-02-24", exercise:"데드리프트",  weight:120,  sets:3, reps:5  },
-  { id:4, date:"2026-02-27", exercise:"풀업",        weight:0,    sets:4, reps:10 },
-  { id:5, date:"2026-03-03", exercise:"벤치프레스", weight:82.5, sets:4, reps:8  },
-];
-const seedFoods = [
-  { id:1, date:"2026-02-27", name:"닭가슴살 100g", kcal:165, carb:0,  protein:31, fat:4 },
-  { id:2, date:"2026-02-27", name:"흰쌀밥 1공기",  kcal:300, carb:66, protein:5,  fat:1 },
-  { id:3, date:"2026-03-03", name:"프로틴쉐이크",  kcal:120, carb:5,  protein:24, fat:2 },
-  { id:4, date:"2026-03-05", name:"달걀 1개",      kcal:78,  carb:1,  protein:6,  fat:5 },
-];
-const seedWeights = [
-  { id:1, date:"2026-02-06", value:80.2 },
-  { id:2, date:"2026-02-10", value:79.8 },
-  { id:3, date:"2026-02-14", value:79.5 },
-  { id:4, date:"2026-02-17", value:79.1 },
-  { id:5, date:"2026-02-21", value:78.8 },
-  { id:6, date:"2026-02-24", value:78.5 },
-  { id:7, date:"2026-02-28", value:78.2 },
-  { id:8, date:"2026-03-04", value:77.9 },
-];
-
 function getTodayStr() { return new Date().toISOString().split("T")[0]; }
 
-// ── STYLES ───────────────────────────────────────────────────
+// ── 스타일 ────────────────────────────────────────────────────
 const S = {
   app:      { background:DARK, minHeight:"100vh", fontFamily:"'DM Mono','Courier New',monospace", color:TEXT, maxWidth:430, margin:"0 auto", paddingBottom:90 },
   header:   { padding:"22px 20px 14px", borderBottom:`1px solid ${BORDER}`, display:"flex", alignItems:"center", justifyContent:"space-between" },
@@ -83,7 +59,7 @@ const S = {
   nav:      { position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, background:"#0D0D0D", borderTop:`1px solid ${BORDER}`, display:"flex", zIndex:100 },
   navBtn:  (a) => ({ flex:1, padding:"10px 0 7px", background:"none", border:"none", color:a?LIME:MUTED, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:2, borderTop:a?`2px solid ${LIME}`:"2px solid transparent", transition:"all 0.15s" }),
   navLbl:  (a) => ({ fontSize:9, letterSpacing:1.2, fontWeight:600, color:a?LIME:MUTED, textTransform:"uppercase" }),
-  sec:      { padding:"18px 18px" },
+  sec:      { padding:"18px" },
   card:     { background:CARD, border:`1px solid ${BORDER}`, borderRadius:8, padding:15, marginBottom:11 },
   input:    { width:"100%", background:"#1A1A1A", border:`1px solid ${BORDER}`, borderRadius:6, color:TEXT, padding:"10px 12px", fontSize:13, fontFamily:"inherit", boxSizing:"border-box", outline:"none" },
   textarea: { width:"100%", background:"#1A1A1A", border:`1px solid ${BORDER}`, borderRadius:6, color:TEXT, padding:"10px 12px", fontSize:12, fontFamily:"inherit", boxSizing:"border-box", outline:"none", resize:"vertical", minHeight:60 },
@@ -91,8 +67,8 @@ const S = {
   label:    { fontSize:10, letterSpacing:2, color:MUTED, textTransform:"uppercase", marginBottom:5, display:"block" },
   row:      { display:"flex", gap:9 },
   btn:      { width:"100%", background:LIME, border:"none", borderRadius:6, color:"#000", padding:"11px", fontSize:12, fontWeight:700, letterSpacing:2, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit" },
-  btnGhost: { background:"none", border:`1px solid ${BORDER}`, borderRadius:6, color:MUTED, padding:"10px 14px", fontSize:11, cursor:"pointer", fontFamily:"inherit", letterSpacing:1 },
-  btnSm:    { background:"#1A1A1A", border:`1px solid ${BORDER}`, borderRadius:5, color:MUTED, padding:"6px 12px", fontSize:11, cursor:"pointer", fontFamily:"inherit" },
+  btnGhost: { background:"none", border:`1px solid ${BORDER}`, borderRadius:6, color:MUTED, padding:"10px 14px", fontSize:11, cursor:"pointer", fontFamily:"inherit" },
+  btnDanger:{ background:"none", border:`1px solid #FF444444`, borderRadius:6, color:"#FF7777", padding:"10px 14px", fontSize:11, cursor:"pointer", fontFamily:"inherit" },
   secTitle: { fontSize:10, letterSpacing:3, color:MUTED, textTransform:"uppercase", marginBottom:12, fontWeight:600 },
   logItem:  { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 0", borderBottom:`1px solid ${BORDER}` },
   logName:  { fontSize:14, fontWeight:600, color:TEXT },
@@ -105,31 +81,124 @@ const S = {
   tag:      { background:"#1E1E1E", border:`1px solid ${BORDER}`, borderRadius:4, padding:"3px 8px", fontSize:10, color:MUTED },
   tipBox:   { background:"#0F1A00", border:`1px solid ${LIME}33`, borderRadius:6, padding:"10px 12px", marginTop:10, fontSize:12, color:"#C8E88A", lineHeight:1.6 },
   tt:       { background:"#1A1A1A", border:`1px solid ${BORDER}`, borderRadius:6, fontSize:12, color:TEXT },
-  uploadBox:{ border:`2px dashed ${BORDER}`, borderRadius:8, padding:"22px 16px", textAlign:"center", cursor:"pointer", background:"#111", marginBottom:12 },
-  subToggle:{ display:"flex", gap:0, marginBottom:18, background:"#1A1A1A", borderRadius:8, padding:4 },
+  uploadBox:{ border:`2px dashed ${BORDER}`, borderRadius:8, padding:"20px 16px", textAlign:"center", cursor:"pointer", background:"#111", marginBottom:12 },
+  subToggle:{ display:"flex", marginBottom:18, background:"#1A1A1A", borderRadius:8, padding:4 },
   subBtn:  (a) => ({ flex:1, padding:"8px", background:a?LIME:"transparent", border:"none", borderRadius:6, color:a?"#000":MUTED, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit", transition:"all 0.15s" }),
+  spinner:  { display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh", background:DARK, color:MUTED, fontSize:14, letterSpacing:2 },
 };
 
-// ── TIP BOX ──────────────────────────────────────────────────
+// ── 공통 컴포넌트 ─────────────────────────────────────────────
 function TipBox({ tip }) {
   if (!tip) return null;
   return <div style={S.tipBox}>💡 {tip}</div>;
 }
 
-// ── WORKOUT TAB ──────────────────────────────────────────────
-function WorkoutTab({ workouts, setWorkouts, exerciseDB }) {
+function Spinner({ text = "로딩중..." }) {
+  return <div style={S.spinner}>{text}</div>;
+}
+
+// ── 로그인 화면 ───────────────────────────────────────────────
+function Login() {
+  const [mode, setMode]       = useState("login");
+  const [email, setEmail]     = useState("");
+  const [password, setPassword] = useState("");
+  const [msg, setMsg]         = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleGoogle() {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+  }
+
+  async function handleEmail() {
+    if (!email || !password) { setMsg("이메일과 비밀번호를 입력해주세요."); return; }
+    setLoading(true); setMsg(null);
+    if (mode === "login") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setMsg(error.message === "Invalid login credentials" ? "이메일 또는 비밀번호가 올바르지 않아요." : error.message);
+    } else {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) setMsg(error.message);
+      else setMsg("✅ 가입 완료! 이메일을 확인하여 인증을 완료해주세요.");
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ background:DARK, minHeight:"100vh", fontFamily:"'DM Mono','Courier New',monospace", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ width:"100%", maxWidth:360 }}>
+        {/* 로고 */}
+        <div style={{ textAlign:"center", marginBottom:40 }}>
+          <div style={{ fontSize:32, fontWeight:700, letterSpacing:5, color:LIME }}>FITLOG</div>
+          <div style={{ fontSize:12, color:MUTED, marginTop:6, letterSpacing:2 }}>나만의 헬스 기록앱</div>
+        </div>
+
+        {/* 구글 로그인 */}
+        <button
+          onClick={handleGoogle}
+          style={{ width:"100%", background:"#fff", border:"none", borderRadius:8, color:"#111", padding:"13px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:20 }}>
+          <span style={{ fontSize:18 }}>G</span> Google로 계속하기
+        </button>
+
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+          <div style={{ flex:1, height:1, background:BORDER }} />
+          <span style={{ fontSize:11, color:MUTED }}>또는</span>
+          <div style={{ flex:1, height:1, background:BORDER }} />
+        </div>
+
+        {/* 이메일/비밀번호 */}
+        <div style={{ marginBottom:10 }}>
+          <label style={S.label}>이메일</label>
+          <input style={S.input} type="email" placeholder="hello@email.com" value={email} onChange={e=>setEmail(e.target.value)} />
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <label style={S.label}>비밀번호</label>
+          <input style={S.input} type="password" placeholder="6자 이상" value={password} onChange={e=>setPassword(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&handleEmail()} />
+        </div>
+
+        <button style={S.btn} onClick={handleEmail} disabled={loading}>
+          {loading ? "..." : mode==="login" ? "로그인" : "회원가입"}
+        </button>
+
+        {msg && (
+          <div style={{ marginTop:12, padding:"10px 12px", background: msg.startsWith("✅")?"#0F1A00":"#1A0000", border:`1px solid ${msg.startsWith("✅")?LIME+"44":"#FF444444"}`, borderRadius:6, fontSize:12, color: msg.startsWith("✅")?"#C8E88A":"#FF7777" }}>
+            {msg}
+          </div>
+        )}
+
+        <div style={{ textAlign:"center", marginTop:20 }}>
+          <button
+            onClick={() => { setMode(m=>m==="login"?"signup":"login"); setMsg(null); }}
+            style={{ background:"none", border:"none", color:MUTED, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+            {mode==="login" ? "계정이 없으신가요? 회원가입" : "이미 계정이 있으신가요? 로그인"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 운동 탭 ───────────────────────────────────────────────────
+function WorkoutTab({ workouts, addWorkout, deleteWorkout, exerciseDB }) {
   const today = getTodayStr();
   const [form, setForm]       = useState({ exercise: exerciseDB[0]?.name || "", weight:"", sets:"", reps:"" });
   const [showForm, setShowForm] = useState(false);
-  const todayW       = workouts.filter(w => w.date===today);
-  const totalVolume  = todayW.reduce((s,w) => s+w.weight*w.sets*w.reps, 0);
-  const selectedTip  = exerciseDB.find(e => e.name===form.exercise)?.tip || "";
+  const [saving, setSaving]   = useState(false);
 
-  function add() {
+  const todayW      = workouts.filter(w => w.date===today);
+  const totalVolume = todayW.reduce((s,w) => s+w.weight*w.sets*w.reps, 0);
+  const selectedTip = exerciseDB.find(e => e.name===form.exercise)?.tip || "";
+
+  async function handleAdd() {
     if (!form.sets || !form.reps || !form.exercise) return;
-    setWorkouts(p => [...p, { ...form, id:Date.now(), date:today, weight:Number(form.weight)||0, sets:Number(form.sets), reps:Number(form.reps) }]);
+    setSaving(true);
+    await addWorkout(form);
     setForm(f => ({ ...f, weight:"", sets:"", reps:"" }));
     setShowForm(false);
+    setSaving(false);
   }
 
   return (
@@ -160,7 +229,9 @@ function WorkoutTab({ workouts, setWorkouts, exerciseDB }) {
               </div>
             ))}
           </div>
-          <button style={{ ...S.btn, marginTop:13 }} onClick={add}>기록하기</button>
+          <button style={{ ...S.btn, marginTop:13, opacity:saving?0.6:1 }} onClick={handleAdd} disabled={saving}>
+            {saving ? "저장 중..." : "기록하기"}
+          </button>
         </div>
       )}
 
@@ -175,7 +246,7 @@ function WorkoutTab({ workouts, setWorkouts, exerciseDB }) {
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:9 }}>
               {w.weight>0 && <div style={S.logVal}>{(w.weight*w.sets*w.reps).toLocaleString()}<span style={{ fontSize:10, color:MUTED }}>kg</span></div>}
-              <button style={S.delBtn} onClick={() => setWorkouts(p=>p.filter(x=>x.id!==w.id))}>×</button>
+              <button style={S.delBtn} onClick={() => deleteWorkout(w.id)}>×</button>
             </div>
           </div>
         ))
@@ -201,28 +272,31 @@ function WorkoutTab({ workouts, setWorkouts, exerciseDB }) {
   );
 }
 
-// ── FOOD TAB ─────────────────────────────────────────────────
-function FoodTab({ foods, setFoods, foodDB }) {
-  const today = getTodayStr();
+// ── 식단 탭 ───────────────────────────────────────────────────
+function FoodTab({ foods, addFood, deleteFood, foodDB }) {
+  const today  = getTodayStr();
   const [form, setForm]           = useState({ name:"", kcal:"", carb:"", protein:"", fat:"" });
   const [showForm, setShowForm]   = useState(false);
   const [showPresets, setShowPresets] = useState(false);
-  const [selectedFood, setSelectedFood] = useState(null); // for tip display
+  const [selectedFood, setSelectedFood] = useState(null);
+  const [saving, setSaving]       = useState(false);
+
   const todayF   = foods.filter(f => f.date===today);
   const totals   = todayF.reduce((s,f) => ({ kcal:s.kcal+f.kcal, carb:s.carb+f.carb, protein:s.protein+f.protein, fat:s.fat+f.fat }), { kcal:0,carb:0,protein:0,fat:0 });
   const macroSum = totals.carb+totals.protein+totals.fat || 1;
 
-  function addFood(data=null) {
+  async function handleAdd(data=null) {
     const d = data || { ...form, kcal:Number(form.kcal)||0, carb:Number(form.carb)||0, protein:Number(form.protein)||0, fat:Number(form.fat)||0 };
     if (!d.name) return;
-    setFoods(p => [...p, { ...d, id:Date.now(), date:today }]);
+    setSaving(true);
+    await addFood(d);
     setForm({ name:"", kcal:"", carb:"", protein:"", fat:"" });
     setShowForm(false); setShowPresets(false); setSelectedFood(null);
+    setSaving(false);
   }
 
   return (
     <div style={S.sec}>
-      {/* Kcal card */}
       <div style={{ ...S.card, borderColor:LIME+"33", marginBottom:14 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:13 }}>
           <div>
@@ -256,7 +330,6 @@ function FoodTab({ foods, setFoods, foodDB }) {
           onClick={() => { setShowForm(!showForm); setShowPresets(false); setSelectedFood(null); }}>✎ 직접 입력</button>
       </div>
 
-      {/* Preset list */}
       {showPresets && (
         <div style={{ ...S.card, marginBottom:14 }}>
           <div style={S.secTitle}>내 음식 DB</div>
@@ -265,20 +338,22 @@ function FoodTab({ foods, setFoods, foodDB }) {
               <div key={i}>
                 <button
                   onClick={() => setSelectedFood(selectedFood?.name===p.name ? null : p)}
-                  style={{ width:"100%", background: selectedFood?.name===p.name ? "#1A2A00" : "#1A1A1A", border:`1px solid ${selectedFood?.name===p.name ? LIME+"88" : BORDER}`, borderRadius:7, color:TEXT, padding:"11px 13px", fontSize:12, cursor:"pointer", fontFamily:"inherit", textAlign:"left", display:"flex", justifyContent:"space-between", alignItems:"center", transition:"all 0.15s" }}>
+                  style={{ width:"100%", background:selectedFood?.name===p.name?"#1A2A00":"#1A1A1A", border:`1px solid ${selectedFood?.name===p.name?LIME+"88":BORDER}`, borderRadius:7, color:TEXT, padding:"11px 13px", fontSize:12, cursor:"pointer", fontFamily:"inherit", textAlign:"left", display:"flex", justifyContent:"space-between", alignItems:"center", transition:"all 0.15s" }}>
                   <div>
                     <div style={{ fontWeight:600, fontSize:13 }}>{p.name}</div>
                     <div style={{ color:MUTED, fontSize:10, marginTop:2 }}>탄{p.carb}g · 단{p.protein}g · 지{p.fat}g</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
                     <div style={{ color:LIME, fontWeight:700 }}>{p.kcal} kcal</div>
-                    <div style={{ color:MUTED, fontSize:10, marginTop:2 }}>{selectedFood?.name===p.name ? "▲ 접기" : "▼ 상세"}</div>
+                    <div style={{ color:MUTED, fontSize:10, marginTop:2 }}>{selectedFood?.name===p.name?"▲ 접기":"▼ 상세"}</div>
                   </div>
                 </button>
                 {selectedFood?.name===p.name && (
                   <div style={{ background:"#0F1A00", border:`1px solid ${LIME}33`, borderRadius:"0 0 7px 7px", padding:"10px 13px", marginTop:-1 }}>
                     {p.tip && <div style={{ fontSize:12, color:"#C8E88A", lineHeight:1.6, marginBottom:10 }}>💡 {p.tip}</div>}
-                    <button style={{ ...S.btn, fontSize:11 }} onClick={() => addFood(p)}>+ 식단에 추가</button>
+                    <button style={{ ...S.btn, fontSize:11, opacity:saving?0.6:1 }} onClick={() => handleAdd(p)} disabled={saving}>
+                      {saving ? "저장 중..." : "+ 식단에 추가"}
+                    </button>
                   </div>
                 )}
               </div>
@@ -287,7 +362,6 @@ function FoodTab({ foods, setFoods, foodDB }) {
         </div>
       )}
 
-      {/* Manual form */}
       {showForm && (
         <div style={{ ...S.card, borderColor:LIME+"44", marginBottom:14 }}>
           <div style={{ marginBottom:9 }}>
@@ -306,7 +380,9 @@ function FoodTab({ foods, setFoods, foodDB }) {
               </div>
             ))}
           </div>
-          <button style={{ ...S.btn, marginTop:13 }} onClick={() => addFood()}>추가하기</button>
+          <button style={{ ...S.btn, marginTop:13, opacity:saving?0.6:1 }} onClick={() => handleAdd()} disabled={saving}>
+            {saving ? "저장 중..." : "추가하기"}
+          </button>
         </div>
       )}
 
@@ -321,7 +397,7 @@ function FoodTab({ foods, setFoods, foodDB }) {
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:9 }}>
               <div style={S.logVal}>{f.kcal}<span style={{ fontSize:10, color:MUTED }}>kcal</span></div>
-              <button style={S.delBtn} onClick={() => setFoods(p=>p.filter(x=>x.id!==f.id))}>×</button>
+              <button style={S.delBtn} onClick={() => deleteFood(f.id)}>×</button>
             </div>
           </div>
         ))
@@ -330,7 +406,7 @@ function FoodTab({ foods, setFoods, foodDB }) {
   );
 }
 
-// ── STATS TAB ────────────────────────────────────────────────
+// ── 통계 탭 ───────────────────────────────────────────────────
 function StatsTab({ workouts, foods }) {
   const weeklyData = useMemo(() => {
     const days = [];
@@ -353,7 +429,6 @@ function StatsTab({ workouts, foods }) {
         <div style={S.statBox}><div style={S.statNum}>{Math.round(weeklyData.reduce((s,d)=>s+d.칼로리,0)/7)}</div><div style={S.statLbl}>평균 kcal</div></div>
         <div style={S.statBox}><div style={{ fontSize:19, fontWeight:700, color:LIME }}>{(workouts.reduce((s,w)=>s+w.weight*w.sets*w.reps,0)/1000).toFixed(1)}t</div><div style={S.statLbl}>총 볼륨</div></div>
       </div>
-
       <div style={S.secTitle}>주간 칼로리</div>
       <div style={{ ...S.card, marginBottom:18 }}>
         <ResponsiveContainer width="100%" height={145}>
@@ -366,7 +441,6 @@ function StatsTab({ workouts, foods }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-
       <div style={S.secTitle}>주간 운동 볼륨 (kg)</div>
       <div style={{ ...S.card, marginBottom:18 }}>
         <ResponsiveContainer width="100%" height={130}>
@@ -379,7 +453,6 @@ function StatsTab({ workouts, foods }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
-
       <div style={S.secTitle}>자주 한 운동 TOP 5</div>
       <div style={S.card}>
         {Object.entries(workouts.reduce((acc,w)=>{ acc[w.exercise]=(acc[w.exercise]||0)+1; return acc; },{}))
@@ -403,19 +476,20 @@ function StatsTab({ workouts, foods }) {
   );
 }
 
-// ── WEIGHT TAB ────────────────────────────────────────────────
-function WeightTab({ profile, setProfile, weightLogs, setWeightLogs }) {
+// ── 몸무게 탭 ─────────────────────────────────────────────────
+function WeightTab({ weightLogs, addWeight, deleteWeight, profile, saveProfile }) {
   const [newWeight, setNewWeight] = useState("");
   const [newDate, setNewDate]     = useState(getTodayStr());
   const [editProfile, setEditProfile] = useState(false);
   const [draft, setDraft]         = useState(profile);
+  const [saving, setSaving]       = useState(false);
 
   const sorted  = [...weightLogs].sort((a,b)=>a.date.localeCompare(b.date));
   const latest  = sorted[sorted.length-1];
   const oldest  = sorted[0];
   const totalChange = latest&&oldest ? (latest.value-oldest.value).toFixed(1) : null;
   const lastWeekItems = sorted.filter(w => { const d=new Date(); d.setDate(d.getDate()-7); return w.date>=d.toISOString().split("T")[0]; });
-  const weekChange    = lastWeekItems.length>=2 ? (lastWeekItems[lastWeekItems.length-1].value-lastWeekItems[0].value).toFixed(1) : null;
+  const weekChange = lastWeekItems.length>=2 ? (lastWeekItems[lastWeekItems.length-1].value-lastWeekItems[0].value).toFixed(1) : null;
 
   const bmi     = latest?.value && profile.height ? (latest.value/Math.pow(profile.height/100,2)).toFixed(1) : null;
   const bmiInfo = bmi ? (bmi<18.5?["저체중","#4FC3F7"]:bmi<23?["정상",LIME]:bmi<25?["과체중","#FFD740"]:["비만","#FF7043"]) : null;
@@ -424,11 +498,20 @@ function WeightTab({ profile, setProfile, weightLogs, setWeightLogs }) {
   const minV = sorted.length ? Math.min(...sorted.map(w=>w.value))-1 : 60;
   const maxV = sorted.length ? Math.max(...sorted.map(w=>w.value))+1 : 90;
 
-  function addWeight() {
+  async function handleAddWeight() {
     const v = parseFloat(newWeight);
     if (!v||!newDate) return;
-    setWeightLogs(p => [...p.filter(w=>w.date!==newDate), { id:Date.now(), date:newDate, value:v }].sort((a,b)=>a.date.localeCompare(b.date)));
+    setSaving(true);
+    await addWeight({ date:newDate, value:v });
     setNewWeight(""); setNewDate(getTodayStr());
+    setSaving(false);
+  }
+
+  async function handleSaveProfile() {
+    setSaving(true);
+    await saveProfile(draft);
+    setEditProfile(false);
+    setSaving(false);
   }
 
   return (
@@ -462,7 +545,7 @@ function WeightTab({ profile, setProfile, weightLogs, setWeightLogs }) {
           <div style={{ display:"flex", gap:8 }}>
             {[
               ["전체 변화", totalChange!==null?`${totalChange>0?"+":""}${totalChange}kg`:"-", totalChange<0?LIME:ORANGE],
-              ["이번 주",   weekChange!==null?`${weekChange>0?"+":""}${weekChange}kg`:"-",  weekChange!==null&&weekChange<=0?LIME:ORANGE],
+              ["이번 주",   weekChange!==null?`${weekChange>0?"+":""}${weekChange}kg`:"-",    weekChange!==null&&weekChange<=0?LIME:ORANGE],
               ["측정 횟수", `${sorted.length}회`, TEXT],
             ].map(([l,v,c])=>(
               <div key={l} style={{ flex:1, textAlign:"center", background:"#1A1A1A", borderRadius:6, padding:"11px 6px" }}>
@@ -503,7 +586,9 @@ function WeightTab({ profile, setProfile, weightLogs, setWeightLogs }) {
             <input style={S.input} type="number" step="0.1" placeholder="78.5" value={newWeight} onChange={e=>setNewWeight(e.target.value)} />
           </div>
         </div>
-        <button style={{ ...S.btn, marginTop:11 }} onClick={addWeight}>기록하기</button>
+        <button style={{ ...S.btn, marginTop:11, opacity:saving?0.6:1 }} onClick={handleAddWeight} disabled={saving}>
+          {saving?"저장 중...":"기록하기"}
+        </button>
       </div>
 
       <div style={S.secTitle}>기록 목록</div>
@@ -520,7 +605,7 @@ function WeightTab({ profile, setProfile, weightLogs, setWeightLogs }) {
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:11 }}>
                 {diff!==null && <span style={{ fontSize:13, color:col, fontWeight:600 }}>{diff>0?"+":""}{diff}</span>}
-                <button style={S.delBtn} onClick={()=>setWeightLogs(p=>p.filter(x=>x.id!==w.id))}>×</button>
+                <button style={S.delBtn} onClick={()=>deleteWeight(w.id)}>×</button>
               </div>
             </div>
           );
@@ -551,7 +636,7 @@ function WeightTab({ profile, setProfile, weightLogs, setWeightLogs }) {
                 ))}
               </div>
               <div style={S.row}>
-                <button style={{ ...S.btn, flex:1 }} onClick={()=>{ setProfile(draft); setEditProfile(false); }}>저장</button>
+                <button style={{ ...S.btn, flex:1, opacity:saving?0.6:1 }} onClick={handleSaveProfile} disabled={saving}>{saving?"저장 중...":"저장"}</button>
                 <button style={{ ...S.btnGhost, flex:1 }} onClick={()=>setEditProfile(false)}>취소</button>
               </div>
             </div>
@@ -562,67 +647,39 @@ function WeightTab({ profile, setProfile, weightLogs, setWeightLogs }) {
   );
 }
 
-// ── DB TAB ────────────────────────────────────────────────────
-function DBTab({ exerciseDB, setExerciseDB, foodDB, setFoodDB }) {
+// ── DB 관리 탭 ────────────────────────────────────────────────
+function DBTab({ exerciseDB, addExercise, deleteExercise, uploadExercises, foodDB, addFoodDB, deleteFoodDB, uploadFoods }) {
   const [subTab, setSubTab]   = useState("exercise");
   const [newEx, setNewEx]     = useState({ name:"", tip:"" });
   const [showExForm, setShowExForm] = useState(false);
   const [newFood, setNewFood] = useState({ name:"", kcal:"", carb:"", protein:"", fat:"", tip:"" });
   const [showFoodForm, setShowFoodForm] = useState(false);
   const [uploadMsg, setUploadMsg] = useState(null);
-  const fileInputRef = useRef();
+  const [saving, setSaving]   = useState(false);
+  const fileInputRef          = useRef();
 
-  // ── Excel upload ──────────────────────────────────────────
-  function handleFileUpload(e) {
+  async function handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
-        const wb   = XLSX.read(ev.target.result, { type:"binary" });
+        const wb = XLSX.read(ev.target.result, { type:"binary" });
         let addedEx = 0, addedFood = 0;
 
-        // 시트 1: 운동 DB  →  컬럼: 운동명 | 팁
-        const exSheet = wb.Sheets[wb.SheetNames[0]];
-        if (exSheet) {
-          const rows = XLSX.utils.sheet_to_json(exSheet, { header:1 });
-          rows.forEach((row, i) => {
-            if (i===0) return; // 헤더 스킵
-            const name = String(row[0]||"").trim();
-            const tip  = String(row[1]||"").trim();
-            if (!name) return;
-            setExerciseDB(p => {
-              if (p.find(e=>e.name===name)) return p;
-              addedEx++;
-              return [...p, { name, tip }];
-            });
-          });
+        if (wb.Sheets[wb.SheetNames[0]]) {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1 });
+          const list = rows.slice(1).map(r => ({ name:String(r[0]||"").trim(), tip:String(r[1]||"").trim() })).filter(r=>r.name);
+          addedEx = await uploadExercises(list);
         }
-
-        // 시트 2: 음식 DB  →  컬럼: 음식명 | 칼로리 | 탄수화물 | 단백질 | 지방 | 팁
         if (wb.SheetNames.length >= 2) {
-          const foodSheet = wb.Sheets[wb.SheetNames[1]];
-          const rows = XLSX.utils.sheet_to_json(foodSheet, { header:1 });
-          rows.forEach((row, i) => {
-            if (i===0) return;
-            const name    = String(row[0]||"").trim();
-            const kcal    = Number(row[1])||0;
-            const carb    = Number(row[2])||0;
-            const protein = Number(row[3])||0;
-            const fat     = Number(row[4])||0;
-            const tip     = String(row[5]||"").trim();
-            if (!name) return;
-            setFoodDB(p => {
-              if (p.find(f=>f.name===name)) return p;
-              addedFood++;
-              return [...p, { name, kcal, carb, protein, fat, tip }];
-            });
-          });
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[1]], { header:1 });
+          const list = rows.slice(1).map(r => ({ name:String(r[0]||"").trim(), kcal:Number(r[1])||0, carb:Number(r[2])||0, protein:Number(r[3])||0, fat:Number(r[4])||0, tip:String(r[5]||"").trim() })).filter(r=>r.name);
+          addedFood = await uploadFoods(list);
         }
-
-        setUploadMsg(`✅ 업로드 완료! 운동 ${addedEx}개, 음식 ${addedFood}개 추가됨`);
+        setUploadMsg(`✅ 완료! 운동 ${addedEx}개, 음식 ${addedFood}개 추가`);
         setTimeout(()=>setUploadMsg(null), 4000);
-      } catch(err) {
+      } catch {
         setUploadMsg("❌ 파일 읽기 실패. 형식을 확인해주세요.");
         setTimeout(()=>setUploadMsg(null), 4000);
       }
@@ -631,74 +688,55 @@ function DBTab({ exerciseDB, setExerciseDB, foodDB, setFoodDB }) {
     e.target.value = "";
   }
 
-  // ── 샘플 엑셀 다운로드 ────────────────────────────────────
   function downloadTemplate() {
     const wb = XLSX.utils.book_new();
-
-    const exData = [
-      ["운동명", "팁"],
-      ["케틀벨 스윙", "히프힌지 동작이 핵심! 팔이 아닌 엉덩이 힘으로 스윙하세요."],
-      ["시티드로우",  "등을 곧게 펴고 팔꿈치를 뒤로 당기는 느낌으로 광배근을 수축!"],
-    ];
-    const foodData = [
-      ["음식명", "칼로리", "탄수화물(g)", "단백질(g)", "지방(g)", "팁"],
-      ["현미밥 1공기", 280, 58, 6, 2, "흰쌀밥보다 GI지수가 낮아 다이어트에 유리해요."],
-      ["아보카도 1/2개", 120, 6, 2, 11, "건강한 지방의 보고! 달걀과 함께 먹으면 비타민 흡수율 UP."],
-    ];
-
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(exData),   "운동DB");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(foodData), "음식DB");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["운동명","팁"],["케틀벨 스윙","히프힌지 동작이 핵심!"],["시티드로우","광배근 수축에 집중!"]]), "운동DB");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["음식명","칼로리","탄수화물(g)","단백질(g)","지방(g)","팁"],["현미밥 1공기",280,58,6,2,"GI지수 낮아 다이어트에 좋아요."],["아보카도 1/2개",120,6,2,11,"건강한 지방의 보고!"]]), "음식DB");
     XLSX.writeFile(wb, "FITLOG_DB_템플릿.xlsx");
   }
 
-  function addExercise() {
+  async function handleAddExercise() {
     const name = newEx.name.trim();
     if (!name || exerciseDB.find(e=>e.name===name)) return;
-    setExerciseDB(p=>[...p,{ name, tip:newEx.tip.trim() }]);
+    setSaving(true);
+    await addExercise({ name, tip:newEx.tip.trim() });
     setNewEx({ name:"", tip:"" }); setShowExForm(false);
-  }
-  function addFood() {
-    if (!newFood.name.trim()) return;
-    setFoodDB(p=>[...p,{ ...newFood, name:newFood.name.trim(), kcal:Number(newFood.kcal)||0, carb:Number(newFood.carb)||0, protein:Number(newFood.protein)||0, fat:Number(newFood.fat)||0, tip:newFood.tip.trim() }]);
-    setNewFood({ name:"", kcal:"", carb:"", protein:"", fat:"", tip:"" }); setShowFoodForm(false);
+    setSaving(false);
   }
 
-  const isDefaultEx   = (name) => DEFAULT_EXERCISES.find(e=>e.name===name);
-  const isDefaultFood = (name) => DEFAULT_FOODS.find(f=>f.name===name);
+  async function handleAddFood() {
+    if (!newFood.name.trim()) return;
+    setSaving(true);
+    await addFoodDB({ ...newFood, name:newFood.name.trim(), kcal:Number(newFood.kcal)||0, carb:Number(newFood.carb)||0, protein:Number(newFood.protein)||0, fat:Number(newFood.fat)||0, tip:newFood.tip.trim() });
+    setNewFood({ name:"", kcal:"", carb:"", protein:"", fat:"", tip:"" }); setShowFoodForm(false);
+    setSaving(false);
+  }
 
   return (
     <div style={S.sec}>
-      {/* Excel upload section */}
+      {/* 엑셀 업로드 */}
       <div style={S.secTitle}>엑셀 일괄 업로드</div>
-      <div style={S.card}>
+      <div style={{ ...S.card, marginBottom:18 }}>
         <div style={{ fontSize:12, color:MUTED, lineHeight:1.7, marginBottom:12 }}>
           시트1: <span style={{ color:LIME }}>운동DB</span> (운동명 | 팁)<br/>
           시트2: <span style={{ color:LIME }}>음식DB</span> (음식명 | 칼로리 | 탄수화물 | 단백질 | 지방 | 팁)
         </div>
         <div style={S.row}>
-          <button style={{ ...S.btn, flex:1, fontSize:11 }} onClick={()=>fileInputRef.current.click()}>
-            📂 엑셀 업로드 (.xlsx)
-          </button>
-          <button style={{ ...S.btnGhost, flex:1, fontSize:11, color:LIME, borderColor:LIME+"44" }} onClick={downloadTemplate}>
-            ⬇ 템플릿 다운로드
-          </button>
+          <button style={{ ...S.btn, flex:1, fontSize:11 }} onClick={()=>fileInputRef.current.click()}>📂 엑셀 업로드</button>
+          <button style={{ ...S.btnGhost, flex:1, fontSize:11, color:LIME, borderColor:LIME+"44" }} onClick={downloadTemplate}>⬇ 템플릿</button>
         </div>
         <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleFileUpload} />
         {uploadMsg && (
-          <div style={{ marginTop:10, padding:"9px 12px", background:"#0F1A00", border:`1px solid ${LIME}44`, borderRadius:6, fontSize:12, color:"#C8E88A" }}>
-            {uploadMsg}
-          </div>
+          <div style={{ marginTop:10, padding:"9px 12px", background:"#0F1A00", border:`1px solid ${LIME}44`, borderRadius:6, fontSize:12, color:"#C8E88A" }}>{uploadMsg}</div>
         )}
       </div>
 
-      {/* Sub tab */}
       <div style={S.subToggle}>
         {[["exercise","🏋️ 운동 DB"],["food","🍽️ 음식 DB"]].map(([k,l])=>(
           <button key={k} onClick={()=>setSubTab(k)} style={S.subBtn(subTab===k)}>{l}</button>
         ))}
       </div>
 
-      {/* ── 운동 DB ── */}
       {subTab==="exercise" && (
         <>
           <button style={{ ...S.btn, marginBottom:11 }} onClick={()=>setShowExForm(!showExForm)}>
@@ -712,23 +750,21 @@ function DBTab({ exerciseDB, setExerciseDB, foodDB, setFoodDB }) {
               </div>
               <div style={{ marginBottom:9 }}>
                 <label style={S.label}>운동 팁 (선택)</label>
-                <textarea style={S.textarea} placeholder="이 운동을 효과적으로 하는 팁을 입력하세요..." value={newEx.tip} onChange={e=>setNewEx(f=>({...f,tip:e.target.value}))} />
+                <textarea style={S.textarea} placeholder="이 운동을 효과적으로 하는 팁..." value={newEx.tip} onChange={e=>setNewEx(f=>({...f,tip:e.target.value}))} />
               </div>
-              <button style={S.btn} onClick={addExercise}>추가하기</button>
+              <button style={{ ...S.btn, opacity:saving?0.6:1 }} onClick={handleAddExercise} disabled={saving}>{saving?"저장 중...":"추가하기"}</button>
             </div>
           )}
           <div style={S.secTitle}>등록된 운동 ({exerciseDB.length}개)</div>
           <div style={S.card}>
             {exerciseDB.map((ex,i)=>(
-              <div key={ex.name}>
-                <div style={{ ...S.logItem, borderBottom:`1px solid ${BORDER}` }}>
-                  <div style={{ flex:1 }}>
-                    <div style={S.logName}>{ex.name}</div>
-                    {ex.tip && <div style={{ fontSize:11, color:MUTED, marginTop:3, lineHeight:1.5 }}>{ex.tip.slice(0,45)}{ex.tip.length>45?"…":""}</div>}
-                  </div>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginLeft:10 }}>
-                    {isDefaultEx(ex.name) ? <span style={S.tag}>기본</span> : <button style={S.delBtn} onClick={()=>setExerciseDB(p=>p.filter(e=>e.name!==ex.name))}>×</button>}
-                  </div>
+              <div key={ex.id||ex.name} style={{ ...S.logItem, borderBottom:`1px solid ${BORDER}` }}>
+                <div style={{ flex:1 }}>
+                  <div style={S.logName}>{ex.name}</div>
+                  {ex.tip && <div style={{ fontSize:11, color:MUTED, marginTop:3, lineHeight:1.5 }}>{ex.tip.slice(0,50)}{ex.tip.length>50?"…":""}</div>}
+                </div>
+                <div style={{ marginLeft:10 }}>
+                  {ex.is_default ? <span style={S.tag}>기본</span> : <button style={S.delBtn} onClick={()=>deleteExercise(ex.id)}>×</button>}
                 </div>
               </div>
             ))}
@@ -736,7 +772,6 @@ function DBTab({ exerciseDB, setExerciseDB, foodDB, setFoodDB }) {
         </>
       )}
 
-      {/* ── 음식 DB ── */}
       {subTab==="food" && (
         <>
           <button style={{ ...S.btn, marginBottom:11 }} onClick={()=>setShowFoodForm(!showFoodForm)}>
@@ -744,14 +779,12 @@ function DBTab({ exerciseDB, setExerciseDB, foodDB, setFoodDB }) {
           </button>
           {showFoodForm && (
             <div style={{ ...S.card, borderColor:LIME+"44", marginBottom:11 }}>
-              <div style={{ marginBottom:9 }}>
-                <label style={S.label}>음식 이름</label>
-                <input style={S.input} placeholder="현미밥 1공기" value={newFood.name} onChange={e=>setNewFood(f=>({...f,name:e.target.value}))} />
-              </div>
-              <div style={{ marginBottom:9 }}>
-                <label style={S.label}>칼로리 (kcal)</label>
-                <input style={S.input} type="number" placeholder="280" value={newFood.kcal} onChange={e=>setNewFood(f=>({...f,kcal:e.target.value}))} />
-              </div>
+              {[["음식 이름","name","text","현미밥 1공기"],["칼로리 (kcal)","kcal","number","280"]].map(([l,k,t,ph])=>(
+                <div key={k} style={{ marginBottom:9 }}>
+                  <label style={S.label}>{l}</label>
+                  <input style={S.input} type={t} placeholder={ph} value={newFood[k]} onChange={e=>setNewFood(f=>({...f,[k]:e.target.value}))} />
+                </div>
+              ))}
               <div style={{ ...S.row, marginBottom:9 }}>
                 {[["탄수화물","carb","58"],["단백질","protein","6"],["지방","fat","2"]].map(([l,k,ph])=>(
                   <div key={k} style={{ flex:1 }}>
@@ -761,24 +794,24 @@ function DBTab({ exerciseDB, setExerciseDB, foodDB, setFoodDB }) {
                 ))}
               </div>
               <div style={{ marginBottom:9 }}>
-                <label style={S.label}>팁 / 궁합 음식 (선택)</label>
+                <label style={S.label}>팁 / 궁합 (선택)</label>
                 <textarea style={S.textarea} placeholder="예) 닭가슴살과 함께 먹으면 단백질 보충에 최고!" value={newFood.tip} onChange={e=>setNewFood(f=>({...f,tip:e.target.value}))} />
               </div>
-              <button style={S.btn} onClick={addFood}>DB에 추가</button>
+              <button style={{ ...S.btn, opacity:saving?0.6:1 }} onClick={handleAddFood} disabled={saving}>{saving?"저장 중...":"DB에 추가"}</button>
             </div>
           )}
           <div style={S.secTitle}>등록된 음식 ({foodDB.length}개)</div>
           <div style={S.card}>
             {foodDB.map((f,i)=>(
-              <div key={f.name+i} style={{ ...S.logItem, borderBottom:i<foodDB.length-1?`1px solid ${BORDER}`:"none" }}>
+              <div key={f.id||f.name+i} style={{ ...S.logItem, borderBottom:i<foodDB.length-1?`1px solid ${BORDER}`:"none" }}>
                 <div style={{ flex:1 }}>
                   <div style={S.logName}>{f.name}</div>
                   <div style={S.logSub}>탄{f.carb}g · 단{f.protein}g · 지{f.fat}g</div>
-                  {f.tip && <div style={{ fontSize:11, color:MUTED, marginTop:3, lineHeight:1.5 }}>{f.tip.slice(0,50)}{f.tip.length>50?"…":""}</div>}
+                  {f.tip && <div style={{ fontSize:11, color:MUTED, marginTop:3 }}>{f.tip.slice(0,50)}{f.tip.length>50?"…":""}</div>}
                 </div>
                 <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:5, marginLeft:10 }}>
                   <div style={{ fontSize:12, color:LIME, fontWeight:700 }}>{f.kcal}kcal</div>
-                  {isDefaultFood(f.name) ? <span style={S.tag}>기본</span> : <button style={S.delBtn} onClick={()=>setFoodDB(p=>p.filter((_,j)=>j!==i))}>×</button>}
+                  {f.is_default ? <span style={S.tag}>기본</span> : <button style={S.delBtn} onClick={()=>deleteFoodDB(f.id)}>×</button>}
                 </div>
               </div>
             ))}
@@ -791,13 +824,161 @@ function DBTab({ exerciseDB, setExerciseDB, foodDB, setFoodDB }) {
 
 // ── APP ROOT ─────────────────────────────────────────────────
 export default function App() {
-  const [tab, setTab]               = useState("workout");
-  const [workouts, setWorkouts]     = useState(seedWorkouts);
-  const [foods, setFoods]           = useState(seedFoods);
-  const [weightLogs, setWeightLogs] = useState(seedWeights);
-  const [profile, setProfile]       = useState({ name:"", avatar:"⚖️", height:"", targetWeight:"", targetKcal:"2000", goal:"" });
-  const [exerciseDB, setExerciseDB] = useState([...DEFAULT_EXERCISES]);
-  const [foodDB, setFoodDB]         = useState([...DEFAULT_FOODS]);
+  const [user, setUser]           = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [tab, setTab]             = useState("workout");
+
+  const [workouts, setWorkouts]     = useState([]);
+  const [foods, setFoods]           = useState([]);
+  const [weightLogs, setWeightLogs] = useState([]);
+  const [profile, setProfileState]  = useState({ name:"", avatar:"⚖️", height:"", targetWeight:"", targetKcal:"2000", goal:"" });
+  const [exerciseDB, setExerciseDB] = useState([]);
+  const [foodDB, setFoodDB]         = useState([]);
+
+  // ── 인증 설정 ──────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── 로그인 시 데이터 로드 ──────────────────────────────────
+  useEffect(() => {
+    if (user) loadAllData();
+    else { setWorkouts([]); setFoods([]); setWeightLogs([]); setExerciseDB([]); setFoodDB([]); }
+  }, [user]);
+
+  async function loadAllData() {
+    setDataLoading(true);
+    const uid = user.id;
+
+    const [
+      { data: w },
+      { data: f },
+      { data: wl },
+      { data: p },
+      { data: exDB },
+      { data: fDB },
+    ] = await Promise.all([
+      supabase.from("workouts").select("*").eq("user_id", uid).order("date", { ascending: false }),
+      supabase.from("foods").select("*").eq("user_id", uid).order("created_at", { ascending: false }),
+      supabase.from("weight_logs").select("*").eq("user_id", uid).order("date"),
+      supabase.from("profiles").select("*").eq("user_id", uid).maybeSingle(),
+      supabase.from("exercise_db").select("*").eq("user_id", uid).order("id"),
+      supabase.from("food_db").select("*").eq("user_id", uid).order("id"),
+    ]);
+
+    setWorkouts(w || []);
+    setFoods(f || []);
+    setWeightLogs(wl || []);
+
+    if (p) setProfileState({ name:p.name, avatar:p.avatar, height:p.height, targetWeight:p.target_weight, targetKcal:p.target_kcal, goal:p.goal });
+
+    // 운동 DB: 처음 로그인이면 기본값 삽입
+    if (exDB && exDB.length > 0) {
+      setExerciseDB(exDB);
+    } else {
+      const { data: inserted } = await supabase.from("exercise_db")
+        .insert(DEFAULT_EXERCISES.map(e => ({ user_id:uid, name:e.name, tip:e.tip, is_default:true })))
+        .select();
+      setExerciseDB(inserted || []);
+    }
+
+    // 음식 DB: 처음 로그인이면 기본값 삽입
+    if (fDB && fDB.length > 0) {
+      setFoodDB(fDB);
+    } else {
+      const { data: inserted } = await supabase.from("food_db")
+        .insert(DEFAULT_FOODS.map(f => ({ user_id:uid, name:f.name, kcal:f.kcal, carb:f.carb, protein:f.protein, fat:f.fat, tip:f.tip, is_default:true })))
+        .select();
+      setFoodDB(inserted || []);
+    }
+
+    setDataLoading(false);
+  }
+
+  // ── 운동 ──────────────────────────────────────────────────
+  async function addWorkout(form) {
+    const { data } = await supabase.from("workouts").insert({ user_id:user.id, date:getTodayStr(), exercise:form.exercise, weight:Number(form.weight)||0, sets:Number(form.sets), reps:Number(form.reps) }).select();
+    if (data) setWorkouts(p => [data[0], ...p]);
+  }
+  async function deleteWorkout(id) {
+    await supabase.from("workouts").delete().eq("id", id);
+    setWorkouts(p => p.filter(w => w.id !== id));
+  }
+
+  // ── 식단 ──────────────────────────────────────────────────
+  async function addFood(d) {
+    const { data } = await supabase.from("foods").insert({ user_id:user.id, date:getTodayStr(), name:d.name, kcal:d.kcal, carb:d.carb, protein:d.protein, fat:d.fat }).select();
+    if (data) setFoods(p => [data[0], ...p]);
+  }
+  async function deleteFood(id) {
+    await supabase.from("foods").delete().eq("id", id);
+    setFoods(p => p.filter(f => f.id !== id));
+  }
+
+  // ── 몸무게 ────────────────────────────────────────────────
+  async function addWeight({ date, value }) {
+    const { data } = await supabase.from("weight_logs").upsert({ user_id:user.id, date, value }, { onConflict:"user_id,date" }).select();
+    if (data) setWeightLogs(p => [...p.filter(w=>w.date!==date), data[0]].sort((a,b)=>a.date.localeCompare(b.date)));
+  }
+  async function deleteWeight(id) {
+    await supabase.from("weight_logs").delete().eq("id", id);
+    setWeightLogs(p => p.filter(w => w.id !== id));
+  }
+
+  // ── 프로필 ────────────────────────────────────────────────
+  async function saveProfile(d) {
+    await supabase.from("profiles").upsert({ user_id:user.id, name:d.name||"", avatar:d.avatar||"⚖️", height:d.height||"", target_weight:d.targetWeight||"", target_kcal:d.targetKcal||"2000", goal:d.goal||"" }, { onConflict:"user_id" });
+    setProfileState(d);
+  }
+
+  // ── 운동 DB ───────────────────────────────────────────────
+  async function addExercise({ name, tip }) {
+    const { data } = await supabase.from("exercise_db").insert({ user_id:user.id, name, tip:tip||"", is_default:false }).select();
+    if (data) setExerciseDB(p => [...p, data[0]]);
+  }
+  async function deleteExercise(id) {
+    await supabase.from("exercise_db").delete().eq("id", id);
+    setExerciseDB(p => p.filter(e => e.id !== id));
+  }
+  async function uploadExercises(list) {
+    const toInsert = list.filter(e => !exerciseDB.find(x=>x.name===e.name)).map(e => ({ user_id:user.id, name:e.name, tip:e.tip||"", is_default:false }));
+    if (!toInsert.length) return 0;
+    const { data } = await supabase.from("exercise_db").insert(toInsert).select();
+    if (data) setExerciseDB(p => [...p, ...data]);
+    return toInsert.length;
+  }
+
+  // ── 음식 DB ───────────────────────────────────────────────
+  async function addFoodDB(f) {
+    const { data } = await supabase.from("food_db").insert({ user_id:user.id, name:f.name, kcal:f.kcal, carb:f.carb, protein:f.protein, fat:f.fat, tip:f.tip||"", is_default:false }).select();
+    if (data) setFoodDB(p => [...p, data[0]]);
+  }
+  async function deleteFoodDB(id) {
+    await supabase.from("food_db").delete().eq("id", id);
+    setFoodDB(p => p.filter(f => f.id !== id));
+  }
+  async function uploadFoods(list) {
+    const toInsert = list.filter(f => !foodDB.find(x=>x.name===f.name)).map(f => ({ user_id:user.id, name:f.name, kcal:f.kcal||0, carb:f.carb||0, protein:f.protein||0, fat:f.fat||0, tip:f.tip||"", is_default:false }));
+    if (!toInsert.length) return 0;
+    const { data } = await supabase.from("food_db").insert(toInsert).select();
+    if (data) setFoodDB(p => [...p, ...data]);
+    return toInsert.length;
+  }
+
+  async function signOut() { await supabase.auth.signOut(); }
+
+  // ── 렌더 ──────────────────────────────────────────────────
+  if (authLoading) return <Spinner text="FITLOG ..." />;
+  if (!user)       return <Login />;
+  if (dataLoading) return <Spinner text="데이터 불러오는 중..." />;
 
   const today = new Date().toLocaleDateString("ko-KR", { month:"long", day:"numeric", weekday:"short" });
   const tabs = [
@@ -812,14 +993,17 @@ export default function App() {
     <div style={S.app}>
       <div style={S.header}>
         <div style={S.logo}>FITLOG</div>
-        <div style={S.dateChip}>{today}</div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <div style={S.dateChip}>{today}</div>
+          <button onClick={signOut} style={{ background:"none", border:`1px solid ${BORDER}`, borderRadius:4, color:MUTED, fontSize:11, padding:"4px 8px", cursor:"pointer", fontFamily:"inherit" }}>로그아웃</button>
+        </div>
       </div>
 
-      {tab==="workout" && <WorkoutTab workouts={workouts} setWorkouts={setWorkouts} exerciseDB={exerciseDB} />}
-      {tab==="food"    && <FoodTab    foods={foods} setFoods={setFoods} foodDB={foodDB} />}
+      {tab==="workout" && <WorkoutTab workouts={workouts} addWorkout={addWorkout} deleteWorkout={deleteWorkout} exerciseDB={exerciseDB} />}
+      {tab==="food"    && <FoodTab    foods={foods} addFood={addFood} deleteFood={deleteFood} foodDB={foodDB} />}
       {tab==="stats"   && <StatsTab   workouts={workouts} foods={foods} />}
-      {tab==="weight"  && <WeightTab  profile={profile} setProfile={setProfile} weightLogs={weightLogs} setWeightLogs={setWeightLogs} />}
-      {tab==="db"      && <DBTab      exerciseDB={exerciseDB} setExerciseDB={setExerciseDB} foodDB={foodDB} setFoodDB={setFoodDB} />}
+      {tab==="weight"  && <WeightTab  weightLogs={weightLogs} addWeight={addWeight} deleteWeight={deleteWeight} profile={profile} saveProfile={saveProfile} />}
+      {tab==="db"      && <DBTab      exerciseDB={exerciseDB} addExercise={addExercise} deleteExercise={deleteExercise} uploadExercises={uploadExercises} foodDB={foodDB} addFoodDB={addFoodDB} deleteFoodDB={deleteFoodDB} uploadFoods={uploadFoods} />}
 
       <nav style={S.nav}>
         {tabs.map(t=>(
