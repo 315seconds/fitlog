@@ -105,13 +105,6 @@ function Login() {
   const [msg, setMsg]         = useState(null);
   const [loading, setLoading] = useState(false);
 
-  async function handleGoogle() {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
-    });
-  }
-
   async function handleEmail() {
     if (!email || !password) { setMsg("이메일과 비밀번호를 입력해주세요."); return; }
     setLoading(true); setMsg(null);
@@ -133,19 +126,6 @@ function Login() {
         <div style={{ textAlign:"center", marginBottom:40 }}>
           <div style={{ fontSize:32, fontWeight:700, letterSpacing:5, color:LIME }}>FITLOG</div>
           <div style={{ fontSize:12, color:MUTED, marginTop:6, letterSpacing:2 }}>나만의 헬스 기록앱</div>
-        </div>
-
-        {/* 구글 로그인 */}
-        <button
-          onClick={handleGoogle}
-          style={{ width:"100%", background:"#fff", border:"none", borderRadius:8, color:"#111", padding:"13px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:20 }}>
-          <span style={{ fontSize:18 }}>G</span> Google로 계속하기
-        </button>
-
-        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
-          <div style={{ flex:1, height:1, background:BORDER }} />
-          <span style={{ fontSize:11, color:MUTED }}>또는</span>
-          <div style={{ flex:1, height:1, background:BORDER }} />
         </div>
 
         {/* 이메일/비밀번호 */}
